@@ -5,6 +5,7 @@ using Api.Services.Interface;
 using Polly;
 using Api.Middleware;
 using Api.Data;
+using Api.Background;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -42,7 +43,18 @@ builder.Services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>()
 // 7. MVC + Swagger
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new()
+    {
+        Title = "MyCurrencyConverter",
+        Version = "v1",
+        Description = "Real‑time & historical currency conversion API"
+    });
+});
+
+builder.Services.AddHostedService<RealTimeFetchService>();
+builder.Services.AddHostedService<HistoricalFetchService>();
 
 var app = builder.Build();
 
