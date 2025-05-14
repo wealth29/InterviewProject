@@ -2,6 +2,7 @@ using Api.Services.Interface;
 using Microsoft.EntityFrameworkCore;
 using Api.Services;
 using Polly;
+using Polly.Extensions.Http;
 using Api.Middleware;
 using Api.Data;
 using Api.Background;
@@ -10,28 +11,35 @@ using AspNetCoreRateLimit;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Configuration
+//  Configuration
 var config = builder.Configuration;
 
-// 2. RateLimitingOptions for custom API key service
+// RateLimitingOptions for custom API key service
 builder.Services.Configure<RateLimitingOptions>(
     config.GetSection("RateLimiting"));
 
-// 3. Register API Key service
+// Register API Key service
 builder.Services.AddSingleton<IApiKeyService, ApiKeyService>();
 
-// 4. EF Core
+// EF Core
 builder.Services.AddDbContext<ApplicationDbContext>(opts =>
     opts.UseSqlServer(config.GetConnectionString("DefaultConnection")));
 
-// 5. External HTTP client with Polly (disabled for now)
+// Program.cs
 builder.Services.AddHttpClient<IExchangeClient, ExchangeClient>(client =>
-{
-    client.BaseAddress = new Uri(config["ExternalService:BaseUrl"]!);
-    client.DefaultRequestHeaders.Add("X-API-KEY", config["ExternalService:ApiKey"]!);
-});
+    client.BaseAddress = new Uri("https://api.example.com"))
+  .AddPolicyHandler(GetRetryPolicy());
 
-// 6. In-memory IP rate limiting
+static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
+{
+    // Retry 3 times with exponential backoff
+    return HttpPolicyExtensions
+        .HandleTransientHttpError()
+        .WaitAndRetryAsync(3, retryAttempt => 
+            TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)));
+}
+
+//  In-memory IP rate limiting
 builder.Services.AddMemoryCache();
 builder.Services.AddOptions();
 builder.Services.Configure<IpRateLimitOptions>(
@@ -42,7 +50,7 @@ builder.Services.AddSingleton<IRateLimitCounterStore, MemoryCacheRateLimitCounte
 builder.Services.AddSingleton<IProcessingStrategy, AsyncKeyLockProcessingStrategy>();
 builder.Services.AddInMemoryRateLimiting();
 
-// 7. Controllers and Swagger with API Key security
+// Controllers and Swagger with API Key security
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -76,15 +84,12 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// 8. Background Services
+//  Background Services
 builder.Services.AddHostedService<RealTimeFetchService>();
 builder.Services.AddHostedService<HistoricalFetchService>();
 
 var app = builder.Build();
 
-// 9. Middleware pipeline
-
-// Must be early to catch API key before route executes
 app.UseMiddleware<ApiKeyMiddleware>();
 
 if (app.Environment.IsDevelopment())

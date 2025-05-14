@@ -26,7 +26,7 @@ namespace Api.Services
 
         public async Task<RealTimeRatesDto> GetRealTimeAsync(string baseCurrency)
         {
-            // DEV stub
+            // DEV stub  (hardcoded)
             if (_env.IsDevelopment())
             {
                 _logger.LogInformation("Returning stubbed real-time rates for {Base}", baseCurrency);

@@ -1,7 +1,4 @@
 using System.Collections.Concurrent;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
 
 namespace Api.Middleware
 {
@@ -31,14 +28,14 @@ namespace Api.Middleware
 
         public async Task InvokeAsync(HttpContext context)
         {
-            // 1. Skip Swagger
+            // Skip Swagger
             if (context.Request.Path.StartsWithSegments("/swagger"))
             {
                 await _next(context);
                 return;
             }
 
-            // 2. Extract key
+            // Extract key
             if (!context.Request.Headers.TryGetValue(ApiKeyHeaderName, out var extractedValues))
             {
                 _logger.LogWarning("API key missing. Headers: {Headers}", context.Request.Headers.Keys);
@@ -49,7 +46,7 @@ namespace Api.Middleware
 
             var apiKey = extractedValues.ToString();
 
-            // 3. Validate key exists
+            // Validate key exists
             if (!_remainingQuotas.ContainsKey(apiKey))
             {
                 _logger.LogWarning("Invalid API key: {ApiKey}", apiKey);
@@ -58,7 +55,7 @@ namespace Api.Middleware
                 return;
             }
 
-            // 4. Check and consume quota
+            //  Check and consume quota
             bool consumed = _remainingQuotas.AddOrUpdate(
                 apiKey,
                 addValueFactory: _ => 0,
@@ -73,11 +70,11 @@ namespace Api.Middleware
                 return;
             }
 
-            // 5. Expose remaining quota
+            // Expose remaining quota
             context.Response.Headers["X-RateLimit-Remaining"] = 
                 _remainingQuotas[apiKey].ToString();
 
-            // 6. Call next middleware
+            
             await _next(context);
         }
     }
