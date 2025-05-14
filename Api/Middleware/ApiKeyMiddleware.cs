@@ -1,56 +1,86 @@
-using Api.Services.Interface;
+using System.Collections.Concurrent;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace Api.Middleware
 {
     public class ApiKeyMiddleware
     {
-
+        private const string ApiKeyHeaderName = "X-Api-Key";
         private readonly RequestDelegate _next;
-        private const string HEADER = "X-Api-Key";
+        private readonly ILogger<ApiKeyMiddleware> _logger;
+        private readonly ConcurrentDictionary<string, int> _remainingQuotas;
 
-        public ApiKeyMiddleware(RequestDelegate next)
+        public ApiKeyMiddleware(
+            RequestDelegate next,
+            IConfiguration configuration,
+            ILogger<ApiKeyMiddleware> logger)
         {
-            _next = next;
+            _next           = next;
+            _logger         = logger;
+
+            // Load the API keys and their initial quotas from configuration
+            var configured = configuration
+                .GetSection("RateLimiting:ApiKeys")
+                .Get<Dictionary<string, int>>() ?? new Dictionary<string, int>();
+
+            // Use a thread‑safe dictionary for concurrent requests
+            _remainingQuotas = new ConcurrentDictionary<string, int>(configured);
         }
 
-        public async Task InvokeAsync(HttpContext ctx, IApiKeyService keyService)
+        public async Task InvokeAsync(HttpContext context)
         {
-            // Skip API key check for Swagger
-            if (ctx.Request.Path.StartsWithSegments("/swagger"))
+            // 1. Skip Swagger
+            if (context.Request.Path.StartsWithSegments("/swagger"))
             {
-                await _next(ctx);
+                await _next(context);
                 return;
             }
 
-            if (!ctx.Request.Headers.TryGetValue(HEADER, out var extractedKey))
+            // 2. Extract key
+            if (!context.Request.Headers.TryGetValue(ApiKeyHeaderName, out var extractedValues))
             {
-                ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                Console.WriteLine($"Received Headers: {string.Join(", ", ctx.Request.Headers.Select(h => $"{h.Key}:{h.Value}"))}");
-                await ctx.Response.WriteAsync("API Key missing");
+                _logger.LogWarning("API key missing. Headers: {Headers}", context.Request.Headers.Keys);
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsync("API key missing");
                 return;
             }
 
-            var apiKey = extractedKey.ToString();
-            var remaining = keyService.GetRemainingQuota(apiKey);
+            var apiKey = extractedValues.ToString();
 
-            if (remaining == null)
+            // 3. Validate key exists
+            if (!_remainingQuotas.ContainsKey(apiKey))
             {
-                ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                await ctx.Response.WriteAsync("Invalid API Key");
+                _logger.LogWarning("Invalid API key: {ApiKey}", apiKey);
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsync("Invalid API key");
                 return;
             }
 
-            if (remaining == 0 || !keyService.TryConsumeKey(apiKey))
+            // 4. Check and consume quota
+            bool consumed = _remainingQuotas.AddOrUpdate(
+                apiKey,
+                addValueFactory: _ => 0,
+                updateValueFactory: (_, current) => current > 0 ? current - 1 : current
+            ) > 0;
+
+            if (!consumed)
             {
-                ctx.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-                await ctx.Response.WriteAsync("Quota exceeded");
+                _logger.LogWarning("Quota exceeded for key: {ApiKey}", apiKey);
+                context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+                await context.Response.WriteAsync("Quota exceeded");
                 return;
             }
 
-            // Optional: expose remaining in response headers
-            ctx.Response.Headers["X-RateLimit-Remaining"] = remaining.ToString();
+            // 5. Expose remaining quota
+            context.Response.Headers["X-RateLimit-Remaining"] = 
+                _remainingQuotas[apiKey].ToString();
 
-            await _next(ctx);
+            // 6. Call next middleware
+            await _next(context);
         }
     }
+
+    
 }

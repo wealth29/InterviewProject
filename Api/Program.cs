@@ -94,9 +94,9 @@ if (app.Environment.IsDevelopment())
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "MyCurrencyConverter v1");
     });
-    app.UseMiddleware<ApiKeyMiddleware>();
 }
 
+app.UseMiddleware<ApiKeyMiddleware>();
 app.UseIpRateLimiting();
 app.UseHttpsRedirection();
 app.UseAuthorization();
