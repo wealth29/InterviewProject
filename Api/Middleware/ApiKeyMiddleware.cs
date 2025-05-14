@@ -1,14 +1,10 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using Api.Services.Interface;
 
 namespace Api.Middleware
 {
     public class ApiKeyMiddleware
     {
-        
+
         private readonly RequestDelegate _next;
         private const string HEADER = "X-Api-Key";
 
@@ -19,9 +15,17 @@ namespace Api.Middleware
 
         public async Task InvokeAsync(HttpContext ctx, IApiKeyService keyService)
         {
+            // Skip API key check for Swagger
+            if (ctx.Request.Path.StartsWithSegments("/swagger"))
+            {
+                await _next(ctx);
+                return;
+            }
+
             if (!ctx.Request.Headers.TryGetValue(HEADER, out var extractedKey))
             {
                 ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                Console.WriteLine($"Received Headers: {string.Join(", ", ctx.Request.Headers.Select(h => $"{h.Key}:{h.Value}"))}");
                 await ctx.Response.WriteAsync("API Key missing");
                 return;
             }
