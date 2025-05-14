@@ -18,9 +18,9 @@ A robust ASP.NET Core Web API for real-time and historical currency conversion, 
 
 ## Prerequisites
 
-- [.NET 7 SDK](https://dotnet.microsoft.com/download/dotnet/7.0)
+- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/7.0)
 - SQL Server or LocalDB
-- API key from an external currency data provider (e.g., [Example Provider](https://api.example.com))
+- API key from an external currency data provider (e.g., [Example Provider](https://api.example.com)) or use hardcoded data
 - Tools: [Postman](https://www.postman.com/) or `curl` for testing
 
 ---
